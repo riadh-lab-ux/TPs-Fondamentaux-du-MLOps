@@ -1,16 +1,15 @@
-# Dockerfile
-
-# TODO: choisir une image de base Python
 FROM python:3.11-slim
 
-# TODO: définir le répertoire de travail dans le conteneur
 WORKDIR /app
 
-# TODO: copier le fichier app.py
-COPY app.py /app/app.py
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends build-essential libpq-dev && \
+    rm -rf /var/lib/apt/lists/*
 
-# Installer FastAPI et Uvicorn
-RUN pip install fastapi uvicorn
+COPY requirements.txt .
 
-# TODO: lancer le serveur au démarrage du conteneur
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY app.py .
+
 CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
