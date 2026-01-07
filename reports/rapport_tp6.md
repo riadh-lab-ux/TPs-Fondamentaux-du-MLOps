@@ -39,7 +39,9 @@ tp-docker-prefect-1     tp-docker-prefect               "/usr/bin/tini -g --…"
 
 ```
 
-On extrait une fonction pure car elle ne dépend ni de Prefect, ni de MLflow, ni d’un service externe et elle est déterministe, rapide à tester, et permet d’avoir des tests unitaires stables.
+On extrait une fonction pure car elle ne dépend ni de Prefect, ni de MLflow, ni d’un service externe et elle est déterministe, rapide à tester, et permet d’avoir des 
+
+tests unitaires stables.
 
 # Exercice 3 : Créer le flow Prefect train_and_compare_flow (train → eval → compare → promote)
 
@@ -60,7 +62,9 @@ On extrait une fonction pure car elle ne dépend ni de Prefect, ni de MLflow, ni
 
 ```
 
-Le delta impose un gain minimal avant promotion dont ça évite de remplacer le modèle production pour des variations dues au hasard, donc on ne promeut que si l’amélioration est significative.
+Le delta impose un gain minimal avant promotion dont ça évite de remplacer le modèle production pour des variations dues au hasard, donc on ne promeut que si 
+
+l’amélioration est significative.
 
 
 # Exercice 4 : Connecter drift → retraining automatique (monitor_flow.py)
@@ -122,7 +126,70 @@ PS C:\Users\riadh\Desktop\tp-docker> Invoke-RestMethod -Method Post `
 }
 ```
 
-L’API charge le modèle MLflow au démarrage via le model streamflow_churn/Production et le garde en mémoire. Après une promotion dans le Model Registry, l’API ne recharge pas automatiquement la nouvelle version , il faut donc redémarrer le service pour qu’il relance mlflow.pyfunc.load_model et prenne en compte la version Production màj.
+L’API charge le modèle MLflow au démarrage via le model streamflow_churn/Production et le garde en mémoire. Après une promotion dans le Model Registry, l’API ne 
+
+recharge pas automatiquement la nouvelle version , il faut donc redémarrer le service pour qu’il relance mlflow.pyfunc.load_model et prenne en compte la version 
+
+Production màj.
 
 
 # Exercice 6 : CI GitHub Actions (smoke + unit) avec Docker Compose
+
+**Capture github Actions** 
+
+Une pipeline CI a été mise en place avec GitHub Actions comprenant les deux jobs `unit` et `integration` et la CI s’exécute automatiquement à chaque push sur la branche.
+
+![alt text](image-45.png)
+
+
+
+On démarre Docker Compose dans la CI afin de valider les tests d’intégration multi-services, en vérifiant que l’API fonctionne correctement lorsqu’elle est déployée
+
+avec ses dépendances réelles (PostgreSQL, MLflow, Feast), et pas uniquement via des tests unitaires isolés.
+
+# Exercice 7 : Synthèse finale : boucle complète drift → retrain → promotion → serving
+
+### Synthèse
+
+Dans ce projet, le drift des données est mesuré à l’aide d’Evidently en comparant deux périodes temporelles (month_000 et month_001). 
+
+Evidently calcule un drift_share, qui représente la proportion de variables dont la distribution a significativement changé entre les deux périodes. 
+
+Un seuil de déclenchement est appliqué (0.02) : si la part de variables driftées dépasse ce seuil, le système considère que le modèle risque de devenir obsolète et 
+
+déclenche automatiquement un réentraînement. En pratique, ce seuil serait plus élevé et calibré empiriquement afin d’éviter des réentraînements trop fréquents.
+
+Lorsque le drift dépasse le seuil, le flow `train_and_compare_flow` est exécuté. Ce flow entraîne un modèle candidat sur les données récentes, évalue sa performance via
+
+la métrique val_auc, puis évalue le modèle actuellement en Production sur le même jeu de validation. 
+La décision de promotion repose sur une règle robuste dont le modèle candidat est promu uniquement si son AUC dépasse celle du modèle en production d’au moins un delta 
+
+(0.01). 
+
+Ce delta permet d’éviter les promotions dues à de simples fluctuations statistiques. La promotion est réalisée automatiquement via le MLflow Model Registry, en 
+
+archivant l’ancienne version Production.
+
+La séparation des responsabilités est cmme suit :
+
+- Prefect orchestre les processus métier MLOps : monitoring, réentraînement, évaluation, comparaison et promotion des modèles.
+
+- GitHub Actions assure l CI en validant la qualité du code via des tests unitaires et des tests d’intégration légers basés sur Docker Compose et la CI ne prend aucune 
+
+ décision métier sur les modèles.
+
+
+### Limites et améliorations possibles
+
+La CI ne doit pas entraîner un modèle complet car l’entraînement est coûteux, long et non déterministe, ce qui rendrait les pipelines CI instables et lents. 
+
+La CI doit rester rapide et reproductible.
+
+Plusieurs tests manquent encore, notamment des tests de schéma des données, des tests de dérive sur des cas synthétiques, et des tests de performance du modèle dans le 
+
+temps.
+
+Enfin, dans un environnement réel, une approbation humaine est souvent nécessaire avant toute promotion en production. Les décisions automatiques doivent être 
+
+complétées par des mécanismes de validation métiers, en particulier pour des modèles ayant un impact business ou réglementaire fort.
+
